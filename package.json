@@ -1,0 +1,74 @@
+{
+  "name": "tokenbot",
+  "version": "0.1.0-beta.4",
+  "description": "TokenBot user-facing CLI — manage strategies, copiers, exchange links, balances, and webhooks from your terminal.",
+  "bin": {
+    "tokenbot": "./dist/cli.js"
+  },
+  "files": [
+    "dist/**/*",
+    "README.md"
+  ],
+  "scripts": {
+    "build": "node scripts/build.mjs",
+    "build:tsc": "tsc",
+    "clean": "rimraf dist",
+    "test": "vitest run --passWithNoTests",
+    "test:watch": "vitest",
+    "typecheck": "tsc --noEmit",
+    "lint": "echo \"(tokenbot) no lint configured yet\" && exit 0",
+    "start": "tsx src/cli.ts",
+    "smoke-test": "bash scripts/smoke-test.sh"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/tokenbot-org/tokenbot-cli.git"
+  },
+  "homepage": "https://github.com/tokenbot-org/tokenbot-cli#readme",
+  "bugs": {
+    "url": "https://github.com/tokenbot-org/tokenbot-cli/issues"
+  },
+  "keywords": [
+    "tokenbot",
+    "cli",
+    "trading",
+    "copy-trading",
+    "ccxt"
+  ],
+  "author": "TokenBot Team",
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/",
+    "access": "public",
+    "tag": "beta"
+  },
+  "dependencies": {
+    "@inquirer/prompts": "^7.2.1",
+    "@noble/hashes": "^1.6.1",
+    "@noble/secp256k1": "^3.0.0",
+    "asciichart": "^1.5.25",
+    "ccxt": "^4.4.0",
+    "cli-table3": "^0.6.5",
+    "commander": "^13.0.0",
+    "date-fns": "^4.1.0",
+    "graphql": "^16.9.0",
+    "graphql-ws": "^6.0.8",
+    "tslib": "^2.8.1",
+    "tweetnacl": "^1.0.3",
+    "zod": "^4.1.1"
+  },
+  "devDependencies": {
+    "@tokenbot-org/cli-core": "^0.1.4",
+    "@tokenbot-org/data-models": "^1.14.0",
+    "@tokenbot-org/sdk": "^0.5.0",
+    "@types/node": "^25.3.0",
+    "esbuild": "^0.28.0",
+    "rimraf": "^6.0.1",
+    "tsx": "^4.19.2",
+    "typescript": "^5.9.2",
+    "vitest": "^3.2.6"
+  },
+  "engines": {
+    "node": ">=22.0.0"
+  }
+}

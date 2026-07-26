@@ -1,0 +1,93 @@
+name: Publish tokenbot to public npm
+
+# Publishes the unscoped `tokenbot` package to the PUBLIC npm registry using
+# npm trusted publishing (OIDC). No NPM_TOKEN exists anywhere in this repo.
+#
+# Requires a trusted publisher registered on npmjs.com for the `tokenbot`
+# package: organization tokenbot-org, repository tokenbot-cli, workflow
+# filename publish-npm.yml, environment blank, allowed action `npm publish`.
+# The filename is part of that registration — renaming this file breaks
+# publishing with `E404 PUT /tokenbot` (npm masks unauthorized writes as 404).
+
+on:
+  push:
+    tags:
+      - 'tokenbot-v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'npm dist-tag (beta / next / latest)'
+        required: false
+        default: 'beta'
+        type: choice
+        options:
+          - beta
+          - next
+          - latest
+
+jobs:
+  publish:
+    name: Publish tokenbot
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Required for trusted publishing: the job mints a short-lived OIDC token
+      # and exchanges it at the registry for a scoped npm token.
+      id-token: write
+    steps:
+      # egress-policy is `audit`, not `block`, for this job only. The OIDC
+      # exchange and the provenance/Sigstore attestation path reach endpoints
+      # outside the CI allowlist, and a blocked-egress failure in the one job
+      # holding release authority is the worst place to debug. Tighten to
+      # `block` once a real release has run and the endpoint set is known.
+      - name: Harden runner (audit egress)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+          disable-sudo: true
+
+      - uses: actions/checkout@v6
+
+      # NOTE: no `scope:` and no GitHub Packages registry here. `tokenbot` is
+      # unscoped and publishes to public npm; pointing this at a scope would
+      # route auth and the publish itself at the wrong registry. The private
+      # @tokenbot-org/* build deps are installed in the separate step below,
+      # which supplies its own credential.
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '22'
+          registry-url: 'https://registry.npmjs.org/'
+
+      # Trusted publishing requires npm >= 11.5.1; Node 22 ships npm 10.x.
+      - name: Ensure npm supports trusted publishing
+        run: |
+          npm install -g npm@^11.5.1
+          npm --version
+
+      # Install with the GitHub Packages credential so the private build deps
+      # resolve. The committed .npmrc maps only the @tokenbot-org scope there.
+      - name: Install dependencies
+        run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.GHP_READ_TOKEN }}
+
+      - name: Build
+        run: npm run build
+
+      - name: Test
+        run: npm test
+
+      # No explicit --provenance flag, deliberately.
+      #
+      # Provenance requires a PUBLIC source repository. Once this repo is
+      # public, the npm CLI AUTO-ENABLES provenance when the OIDC token's
+      # repository_visibility claim is 'public' — but only while the setting is
+      # in its default config state (the branch is guarded by
+      # `config.isDefault('provenance')`). Passing --provenance explicitly
+      # bypasses that check, and from a private repo it hard-fails the entire
+      # publish with `422 Unsupported GitHub Actions source repository
+      # visibility`. Leaving it unset is the only value that is correct in both
+      # states. Verify the attestation actually landed after the first release
+      # (`npm view tokenbot dist.attestations`) before considering pinning it.
+      - name: Publish to public npm (trusted publishing)
+        run: npm publish --tag ${{ github.event.inputs.tag || 'beta' }}

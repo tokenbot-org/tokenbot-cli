@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage/
+*.tgz
+.DS_Store
+
+# Never commit registry credentials. The committed .npmrc holds only the
+# scope→registry mapping; anything with a token belongs outside the repo.
+.npmrc.local

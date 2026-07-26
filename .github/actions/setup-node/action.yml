@@ -1,0 +1,46 @@
+name: 'Setup Node.js + npm for tokenbot CLI'
+description: 'Node.js + npm setup with caching and GitHub Packages auth for the private @tokenbot-org scope'
+
+# Adapted from tokenbot-org/data-models .github/actions/setup-node.
+#
+# Two deliberate differences from the monorepo version:
+#
+#   1. npm, not pnpm. This repo holds a single package, so there is no
+#      workspace to manage and no workspace:* specifiers to substitute. Using
+#      npm also means `npm publish` can do OIDC trusted publishing directly —
+#      pnpm does not implement it (pnpm/pnpm#9812).
+#
+#   2. `scope: '@tokenbot-org'` is set. The monorepo action sets registry-url
+#      with no scope, which points the DEFAULT registry at GitHub Packages;
+#      that only works there because the lockfile pins resolved URLs for public
+#      packages. Scoping it is explicit and correct: ONLY @tokenbot-org/* is
+#      routed to npm.pkg.github.com, everything else resolves from public npm.
+
+inputs:
+  node-version:
+    description: 'Node.js version'
+    default: '22'
+  install-deps:
+    description: 'Run npm ci'
+    default: 'true'
+  ghp-token:
+    description: 'Token with read:packages for the private @tokenbot-org/* build dependencies'
+    required: true
+
+runs:
+  using: 'composite'
+  steps:
+    - uses: actions/setup-node@v6
+      with:
+        node-version: ${{ inputs.node-version }}
+        cache: 'npm'
+        registry-url: 'https://npm.pkg.github.com'
+        scope: '@tokenbot-org'
+
+    # `npm ci` honors ignore-scripts=true from the committed .npmrc, so no
+    # dependency lifecycle scripts run on install (Shai-Hulud hardening).
+    - if: inputs.install-deps == 'true'
+      run: npm ci
+      shell: bash
+      env:
+        NODE_AUTH_TOKEN: ${{ inputs.ghp-token }}

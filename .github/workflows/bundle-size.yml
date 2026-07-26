@@ -1,0 +1,104 @@
+name: Bundle Size
+
+# Bundle-size guard for the public-npm `tokenbot` CLI.
+#
+# Why: `tokenbot` is installed by end users with `npm install -g tokenbot`.
+# Any time a new dep accidentally ends up bundled (instead of marked `external`
+# in scripts/build.mjs), the tarball balloons and the install gets slow. The
+# original "let's inline ccxt" mistake produced a multi-MB bundle; this guard
+# would have caught it.
+#
+# Adapted from the monorepo version: the matrix collapsed to a single package,
+# the path filters lost the three sibling-package directories (they are
+# registry dependencies here), and pnpm became npm.
+
+on:
+  pull_request:
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/bundle-size.yml'
+  push:
+    branches: [develop]
+    paths:
+      - 'src/**'
+      - 'scripts/**'
+      - 'package.json'
+      - 'package-lock.json'
+      - '.github/workflows/bundle-size.yml'
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: bundle-size-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  measure:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - uses: ./.github/actions/setup-node
+        with:
+          ghp-token: ${{ secrets.GHP_READ_TOKEN }}
+
+      - name: Build
+        run: |
+          set -o pipefail
+          npm run build 2>&1 | tee /tmp/build-tokenbot.log
+
+      - name: Check bundle size
+        env:
+          ARTIFACT: dist/cli.js
+          SOFT_LIMIT: 512000   # 500 KB — warn
+          HARD_LIMIT: 1048576  # 1 MB — fail
+          BUILD_LOG: /tmp/build-tokenbot.log
+        run: |
+          set -euo pipefail
+
+          if [ ! -f "$ARTIFACT" ]; then
+            echo "::error::Expected build artifact $ARTIFACT not found"
+            exit 1
+          fi
+
+          SIZE_BYTES=$(stat -c '%s' "$ARTIFACT")
+          SIZE_KB=$(awk "BEGIN {printf \"%.1f\", $SIZE_BYTES / 1024}")
+          SOFT_KB=$(awk "BEGIN {printf \"%.0f\", $SOFT_LIMIT / 1024}")
+          HARD_KB=$(awk "BEGIN {printf \"%.0f\", $HARD_LIMIT / 1024}")
+
+          # "Top 10 contributors" block is printed by scripts/build.mjs.
+          TOP10=$(awk '/^Top 10 contributors:/,/^$/' "$BUILD_LOG" || true)
+
+          {
+            echo "### Bundle size — \`tokenbot\`"
+            echo ""
+            echo "\`$ARTIFACT\`: **${SIZE_KB} KB** (${SIZE_BYTES} bytes)"
+            echo ""
+            echo "- warn above ${SOFT_KB} KB"
+            echo "- fail above ${HARD_KB} KB"
+            if [ -n "$TOP10" ]; then
+              echo ""
+              echo "<details><summary>Top 10 contributors</summary>"
+              echo ""
+              echo '```'
+              echo "$TOP10"
+              echo '```'
+              echo ""
+              echo "</details>"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+
+          if [ "$SIZE_BYTES" -gt "$HARD_LIMIT" ]; then
+            echo "::error::Bundle is ${SIZE_KB} KB, over the ${HARD_KB} KB hard limit"
+            exit 1
+          fi
+          if [ "$SIZE_BYTES" -gt "$SOFT_LIMIT" ]; then
+            echo "::warning::Bundle is ${SIZE_KB} KB, over the ${SOFT_KB} KB soft limit"
+          fi
+          echo "Bundle size OK: ${SIZE_KB} KB"
