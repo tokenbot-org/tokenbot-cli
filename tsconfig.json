@@ -1,0 +1,40 @@
+{
+  "compilerOptions": {
+    // Inlined from the tokenbot-org/data-models monorepo's tsconfig.base.json,
+    // which this package used to `extend`. Kept byte-for-byte so the standalone
+    // build emits exactly what the monorepo build did.
+    //
+    // `importHelpers: true` is why `tslib` is a runtime dependency — dropping it
+    // silently breaks emit.
+    "target": "ES2022",
+    "module": "commonjs",
+    "lib": ["ES2022"],
+    "declaration": true,
+    "declarationMap": true,
+    "strict": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "moduleResolution": "node",
+    "allowSyntheticDefaultImports": true,
+    "importHelpers": true,
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "noImplicitReturns": true,
+    "noFallthroughCasesInSwitch": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitThis": true,
+    "alwaysStrict": true,
+
+    // Package-specific settings (unchanged from the monorepo package tsconfig).
+    "outDir": "./dist",
+    "rootDir": "./src",
+    "types": ["node"]
+  },
+  "include": ["src/**/*"],
+  "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts", "src/__tests__/**"]
+}

@@ -1,0 +1,47 @@
+version: 2
+
+# The `registries:` block is NOT optional here. Three build dependencies
+# (@tokenbot-org/cli-core, /sdk, /data-models) live on GitHub Packages and are
+# private. Without a registry Dependabot can authenticate against, it cannot
+# resolve them and the ENTIRE npm update run fails — not just those three.
+#
+# DEPENDABOT SECRETS ARE A SEPARATE STORE from Actions secrets. Adding
+# GHP_READ_TOKEN under Settings → Secrets → Actions does NOT make it visible
+# here; it must also be added under Settings → Secrets → Dependabot.
+registries:
+  github-packages:
+    type: npm-registry
+    url: https://npm.pkg.github.com
+    token: ${{ secrets.GHP_READ_TOKEN }}
+
+updates:
+  - package-ecosystem: "npm"
+    directory: "/"
+    registries:
+      - github-packages
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "09:00"
+      timezone: "America/Los_Angeles"
+    open-pull-requests-limit: 10
+    groups:
+      production:
+        patterns: ["*"]
+        exclude-patterns: ["@types/*", "eslint*", "prettier*", "*test*", "*vitest*"]
+      dev-tools:
+        patterns: ["@types/*", "eslint*", "prettier*", "*test*", "*vitest*"]
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "chore(deps)"
+
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+    labels:
+      - "dependencies"
+      - "github-actions"
