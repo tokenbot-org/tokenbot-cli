@@ -25,6 +25,11 @@ tokenbot balance --strategy <id>               Fetch balance via ccxt (local)
 tokenbot balance --copier <id>                 Same, by copier
 tokenbot balance --all                         Iterate every stored credential
 
+tokenbot portfolio                             Server-side holdings, as last synced
+tokenbot portfolio --exchange <name>           Filter to one exchange
+tokenbot portfolio --asset <code>              Filter to one asset
+tokenbot portfolio --all                       Include zero balances
+
 tokenbot link --strategy <s> --copier <c>      Bind a copier to a strategy
 tokenbot unlink --strategy <s> --copier <c>    Detach a copier
 tokenbot links list                            View every link
@@ -78,3 +83,18 @@ The CLI has two independent credential paths. They are not mirrors of each other
 If you would rather TokenBot never hold your exchange credentials, stick to `tokenbot keys add` and skip `tokenbot exchange add` — you keep local balance checks, but not server-side automated trading.
 
 Either way, issue **trade-only** API keys with withdrawals disabled.
+
+## `balance` vs `portfolio`
+
+These read from different places and will show different numbers. That is expected, not a bug.
+
+|             | `tokenbot balance`                            | `tokenbot portfolio`                              |
+| ----------- | --------------------------------------------- | ------------------------------------------------- |
+| Source      | `~/.tokenbot/keys.json` + ccxt, in-process     | graphql-api, server-side                          |
+| Freshness   | live, at the moment you run it                 | as of each account's last sync                    |
+| Covers      | credentials stored on **this machine**         | accounts registered via `tokenbot exchange add`   |
+| Keys sent   | never                                          | n/a — the server uses its own copy                |
+
+Because the two commands read two independent credential stores, you can legitimately have entries in one and not the other, and see completely disjoint output.
+
+Every `portfolio` row carries its own `synced` column — that timestamp is the explanation for any divergence from `balance`. Quantities are in each asset's own units; the platform computes no fiat valuation, so `portfolio` shows no total.
