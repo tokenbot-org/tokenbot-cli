@@ -1,0 +1,80 @@
+name: Security
+
+# Ported from tokenbot-org/data-models. Two adaptations:
+#   - `push: branches` follows this repo's default branch (develop), not main.
+#     Left on main it would simply never fire.
+#   - pnpm audit -> npm audit. The gate keeps the same shape and the same
+#     2026-07-25 advisory-wave policy: BLOCK on production-dependency
+#     high/critical, REPORT-ONLY on the full tree (dev chains included).
+on:
+  push:
+    branches: [develop]
+  schedule:
+    - cron: '0 9 * * 1'
+
+permissions:
+  contents: read
+  packages: read
+  security-events: write
+  actions: read
+
+jobs:
+  codeql:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: github/codeql-action/init@v4
+        with:
+          languages: javascript-typescript
+      - uses: github/codeql-action/autobuild@v4
+      - uses: github/codeql-action/analyze@v4
+        with:
+          category: "/language:javascript-typescript"
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
+        with:
+          ghp-token: ${{ secrets.GHP_READ_TOKEN }}
+
+      - name: Audit production dependencies (BLOCKING on high/critical)
+        run: |
+          # Fail closed on unparseable output: treating a broken audit as 0/0
+          # would silently disable this gate.
+          HIGH=""; CRITICAL=""
+          for i in 1 2 3; do
+            AUDIT=$(npm audit --omit=dev --json 2>/dev/null || true)
+            HIGH=$(echo "$AUDIT" | jq '.metadata.vulnerabilities.high // empty')
+            CRITICAL=$(echo "$AUDIT" | jq '.metadata.vulnerabilities.critical // empty')
+            if [ -n "$HIGH" ] && [ -n "$CRITICAL" ]; then break; fi
+            echo "npm audit --omit=dev output unparseable (attempt $i/3), retrying..."
+            sleep 5
+          done
+          if [ -z "$HIGH" ] || [ -z "$CRITICAL" ]; then
+            echo "::error::npm audit --omit=dev produced no parseable vulnerability counts — failing closed"
+            exit 1
+          fi
+          echo "prod-only: high=$HIGH critical=$CRITICAL"
+          if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+            npm audit --omit=dev || true
+            echo "::error::Production-dependency vulnerabilities found (high=$HIGH critical=$CRITICAL)"
+            exit 1
+          fi
+
+      - name: Audit full tree incl. dev dependencies (report-only)
+        run: |
+          AUDIT=$(npm audit --json 2>/dev/null || true)
+          HIGH=$(echo "$AUDIT" | jq '.metadata.vulnerabilities.high // empty')
+          CRITICAL=$(echo "$AUDIT" | jq '.metadata.vulnerabilities.critical // empty')
+          if [ -z "$HIGH" ] || [ -z "$CRITICAL" ]; then
+            echo "::warning::full-tree npm audit produced no parseable counts — inspect manually with 'npm audit'"
+            exit 0
+          fi
+          echo "full tree: high=$HIGH critical=$CRITICAL"
+          if [ "$HIGH" -gt 0 ] || [ "$CRITICAL" -gt 0 ]; then
+            npm audit || true
+            echo "::warning::Full-tree (dev-chain) advisories present: high=$HIGH critical=$CRITICAL — report-only per the 2026-07-25 advisory-wave policy; production dependencies are gated in the blocking step above"
+          fi
+          exit 0

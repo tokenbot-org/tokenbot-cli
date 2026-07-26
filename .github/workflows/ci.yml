@@ -1,0 +1,223 @@
+name: CI
+
+# The five jobs below are the required status checks, matching the names
+# enforced on tokenbot-org/data-models: lint, typecheck, test, build and
+# "Supply-chain marker scan" (that fifth name contains spaces — branch
+# protection matches it byte-for-byte).
+#
+# FORK PRs CANNOT PASS THESE. src/ imports the private @tokenbot-org/*
+# packages, and GitHub withholds secrets from fork pull requests, so `npm ci`
+# has no credential for npm.pkg.github.com and every job fails at install.
+# This is a known, accepted consequence of the CLI source being public while
+# its build dependencies are not. See CONTRIBUTING.md. Do NOT "fix" this with
+# pull_request_target — that runs fork-authored code with a privileged token.
+
+on:
+  pull_request:
+    branches: [develop, main]
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner (egress lockdown)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            uploads.github.com:443
+            pipelines.actions.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            actions-results-receiver-production.githubapp.com:443
+            npm.pkg.github.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            registry.npmjs.org:443
+            registry.yarnpkg.com:443
+            nodejs.org:443
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
+        with:
+          ghp-token: ${{ secrets.GHP_READ_TOKEN }}
+      - run: npm run lint
+
+  typecheck:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner (egress lockdown)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            uploads.github.com:443
+            pipelines.actions.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            actions-results-receiver-production.githubapp.com:443
+            npm.pkg.github.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            registry.npmjs.org:443
+            registry.yarnpkg.com:443
+            nodejs.org:443
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
+        with:
+          ghp-token: ${{ secrets.GHP_READ_TOKEN }}
+      - run: npm run typecheck
+
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner (egress lockdown)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            uploads.github.com:443
+            pipelines.actions.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            actions-results-receiver-production.githubapp.com:443
+            npm.pkg.github.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            registry.npmjs.org:443
+            registry.yarnpkg.com:443
+            nodejs.org:443
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
+        with:
+          ghp-token: ${{ secrets.GHP_READ_TOKEN }}
+      - run: npm test
+
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner (egress lockdown)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            uploads.github.com:443
+            pipelines.actions.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            actions-results-receiver-production.githubapp.com:443
+            npm.pkg.github.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            registry.npmjs.org:443
+            registry.yarnpkg.com:443
+            nodejs.org:443
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
+        with:
+          ghp-token: ${{ secrets.GHP_READ_TOKEN }}
+      - run: npm run build
+
+      # Drift guard with no monorepo equivalent, and it matters more here.
+      #
+      # scripts/build.mjs keeps a hand-maintained `external:` list that must
+      # stay in sync with `dependencies`. In the monorepo a new transitive
+      # runtime requirement was at least visible alongside the sibling package
+      # manifests; here cli-core and sdk arrive as opaque registry bumps, so a
+      # new external could land in a Dependabot PR with nothing in the diff to
+      # hint at it — and the failure mode is MODULE_NOT_FOUND for an end user
+      # who ran `npm install -g tokenbot`, not a red build.
+      #
+      # Every bare specifier the bundle requires must be a declared runtime
+      # dependency. Node builtins (node:*) are exempt.
+      - name: Verify every bundled external is a declared dependency
+        run: |
+          set -euo pipefail
+          grep -oE '(require|import)\("[^"]+"\)' dist/cli.js \
+            | sed -E 's/.*\("(.*)"\)/\1/' \
+            | grep -v '^\.' | grep -v '^node:' \
+            | sed -E 's|^(@[^/]+/[^/]+).*|\1|; s|^([^@][^/]*).*|\1|' \
+            | sort -u > /tmp/bundle-externals.txt
+          node -e "
+            const deps = Object.keys(require('./package.json').dependencies || {});
+            const used = require('fs').readFileSync('/tmp/bundle-externals.txt','utf8').split('\n').filter(Boolean);
+            const missing = used.filter(u => !deps.includes(u));
+            if (missing.length) {
+              console.error('Bundle requires undeclared dependencies: ' + missing.join(', '));
+              console.error('Add them to package.json dependencies, or mark them non-external in scripts/build.mjs.');
+              process.exit(1);
+            }
+            console.log('All ' + used.length + ' bundled externals are declared dependencies.');
+          "
+
+      # The published tarball must never require a private package: those are
+      # inlined by esbuild, and a stray require would 404 for every public user.
+      - name: Verify no @tokenbot-org require survives into the bundle
+        run: |
+          if grep -qE 'require\("@tokenbot-org' dist/cli.js; then
+            echo "dist/cli.js requires a private @tokenbot-org package at runtime — it must be inlined."
+            exit 1
+          fi
+          echo "No @tokenbot-org runtime requires in the bundle."
+
+  supply-chain-scan:
+    name: Supply-chain marker scan
+    runs-on: ubuntu-latest
+    steps:
+      - name: Harden runner (egress lockdown)
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: block
+          disable-sudo: true
+          allowed-endpoints: >
+            github.com:443
+            api.github.com:443
+            codeload.github.com:443
+            objects.githubusercontent.com:443
+            release-assets.githubusercontent.com:443
+            raw.githubusercontent.com:443
+            uploads.github.com:443
+            pipelines.actions.githubusercontent.com:443
+            results-receiver.actions.githubusercontent.com:443
+            actions-results-receiver-production.githubapp.com:443
+            npm.pkg.github.com:443
+            ghcr.io:443
+            pkg-containers.githubusercontent.com:443
+            registry.npmjs.org:443
+            registry.yarnpkg.com:443
+            nodejs.org:443
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-node
+        with:
+          ghp-token: ${{ secrets.GHP_READ_TOKEN }}
+      - run: npm run build
+      - name: Scan installed deps + build output for Shai-Hulud IoC markers
+        # Roots are `node_modules dist`, NOT the monorepo's `packages/*/dist`.
+        # The scanner filters its roots to those that exist and exits 0 with
+        # "nothing to scan" when none do — so a verbatim copy of the monorepo
+        # invocation would silently stop scanning the built artifact, which is
+        # the single most important thing to scan in this repo.
+        run: bash .github/scripts/shai-hulud-marker-scan.sh node_modules dist
