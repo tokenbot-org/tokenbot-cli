@@ -35,7 +35,35 @@ tokenbot exchange list|add|supported           Manage server-side exchange links
 tokenbot webhooks list|add|remove|test         Manage outbound webhooks
 tokenbot rewards  show|refer                   Rewards + referral code
 tokenbot apikey   list|create|revoke           Server-side API keys
+
+tokenbot trades                                Trades executed on your account
 ```
+
+### `tokenbot trades`
+
+Shows what your strategies and copiers have actually done — most recently
+executed first.
+
+```
+tokenbot trades                                Most recent 25 trades
+tokenbot trades --strategy <id>                Only one strategy's trades
+tokenbot trades --symbol BTC/USDT              Only one pair
+tokenbot trades --status filled                new | filled | canceled | rejected | expired
+tokenbot trades --side buy                     buy | sell
+tokenbot trades --range week                   today | week | month | quarter | year | all
+tokenbot trades --since 2026-07-01 --until 2026-07-15
+tokenbot trades --limit 100 --page 2           Page through longer histories
+tokenbot trades --json | jq '.[] | .pnl'       Machine-readable output
+```
+
+| flag | default | notes |
+| ---- | ------- | ----- |
+| `--range` | `all` | The API itself defaults to the last month; the CLI asks for the full history so a bot that last traded weeks ago still shows up. Narrow it when you want less. |
+| `--limit` | `25` | Capped server-side at 1000. |
+| `--symbol` | — | Case-insensitive substring, so `--symbol btc` matches `BTC/USDT` and `BTC/USDC`. Applied client-side over the fetched page. |
+
+Timestamps are UTC, matching exchange records and server logs rather than
+your local timezone. `--json` emits the full untruncated ids.
 
 > `keys add` stores exchange credentials locally only; `exchange add` sends them to the
 > server so the automated strategies and copiers can trade. See

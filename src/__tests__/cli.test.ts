@@ -22,6 +22,7 @@ describe('buildProgram', () => {
         'logout',
         'rewards',
         'strategy',
+        'trades',
         'unlink',
         'webhooks',
         'whoami',
