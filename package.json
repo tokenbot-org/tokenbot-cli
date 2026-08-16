@@ -58,9 +58,9 @@
     "zod": "^4.1.1"
   },
   "devDependencies": {
-    "@tokenbot-org/cli-core": "^0.1.4",
+    "@tokenbot-org/cli-core": "^0.2.0",
     "@tokenbot-org/data-models": "^1.15.0",
-    "@tokenbot-org/sdk": "^0.6.0",
+    "@tokenbot-org/sdk": "^0.7.0",
     "@types/node": "^25.3.0",
     "esbuild": "^0.28.0",
     "rimraf": "^6.0.1",
