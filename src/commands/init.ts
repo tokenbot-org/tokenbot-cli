@@ -28,12 +28,22 @@ export const DEFAULT_WS_URL = 'wss://gql-api.tokenbot.com/graphql';
 export interface InitDeps {
   /** Override the passphrase prompt. */
   promptPassphrase?: () => Promise<string>;
+  /** Override the API-key prompt. */
+  promptApiKey?: () => Promise<string>;
   /** Override the confirm prompt used when overwriting existing config. */
   promptConfirm?: (msg: string, double: boolean) => Promise<boolean>;
   /** Override fetch (so the registration round-trip is mockable). */
   fetchImpl?: typeof fetch;
   /** Override the hostname used to label the identity. */
   hostnameFn?: () => string;
+}
+
+/** Options accepted by {@link runInit}. */
+export interface InitOptions {
+  apiUrl: string;
+  wsUrl: string;
+  label?: string;
+  apiKey?: string;
 }
 
 /** Build a `Command` for `tokenbot init`. */
@@ -43,14 +53,20 @@ export function buildInitCommand(deps: InitDeps = {}): Command {
     .option('--api-url <url>', 'Override the TokenBot API URL', DEFAULT_API_URL)
     .option('--ws-url <url>', 'Override the TokenBot WebSocket URL', DEFAULT_WS_URL)
     .option('--label <label>', 'Human-friendly label for this CLI identity')
-    .action(async (options: { apiUrl: string; wsUrl: string; label?: string }) => {
+    .option(
+      '--api-key <key>',
+      'API key authorizing this registration. Falls back to $TOKENBOT_API_KEY, ' +
+        'otherwise prompted. Prefer the prompt — an argv-supplied key is visible ' +
+        'in shell history and the process table.',
+    )
+    .action(async (options: InitOptions) => {
       await runInit(options, deps);
     });
 }
 
 /** Programmatic entry — exposed for unit testing. */
 export async function runInit(
-  options: { apiUrl: string; wsUrl: string; label?: string },
+  options: InitOptions,
   deps: InitDeps = {},
 ): Promise<void> {
   const existing = await loadConfig();
@@ -75,6 +91,24 @@ export async function runInit(
     throw new CliUserError('Passphrase is required to encrypt the private key.');
   }
 
+  // Registration must be authorized by a credential that already exists.
+  // The keypair generated below is by definition not yet registered, so
+  // signing with it proves nothing to the server: rest-api keeps
+  // /v1/auth/cli-identity outside PUBLIC_ROUTES and its handler requires
+  // "an API key OR an existing CLI identity". Without one, registration
+  // fails with 401 CLI_IDENTITY_UNKNOWN.
+  const promptApiKey =
+    deps.promptApiKey ??
+    (() => inqPassword('API key authorizing this registration:'));
+  const apiKey =
+    options.apiKey ?? process.env['TOKENBOT_API_KEY'] ?? (await promptApiKey());
+  if (!apiKey) {
+    throw new CliUserError(
+      'An API key is required to register a new CLI identity. Pass --api-key, ' +
+        'set TOKENBOT_API_KEY, or enter one when prompted.',
+    );
+  }
+
   const id = generateIdentity(passphrase);
 
   // Build a transient SDK against the new identity so we can sign the
@@ -83,6 +117,7 @@ export async function runInit(
     apiUrl: options.apiUrl,
     publicKey: id.publicKey,
     privateKey: id.privateKey,
+    apiKey,
   };
   if (deps.fetchImpl) {
     httpOpts.fetchImpl = deps.fetchImpl;
