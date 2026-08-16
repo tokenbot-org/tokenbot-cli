@@ -118,4 +118,4 @@ jobs:
       # states. Verify the attestation actually landed after the first release
       # (`npm view tokenbot dist.attestations`) before considering pinning it.
       - name: Publish to public npm (trusted publishing)
-        run: npm publish --tag ${{ github.event.inputs.tag || 'beta' }}
+        run: npm publish --tag ${{ github.event.inputs.tag || 'beta' }} --loglevel verbose
