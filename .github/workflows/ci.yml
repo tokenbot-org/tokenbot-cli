@@ -11,6 +11,14 @@ name: CI
 # This is a known, accepted consequence of the CLI source being public while
 # its build dependencies are not. See CONTRIBUTING.md. Do NOT "fix" this with
 # pull_request_target — that runs fork-authored code with a privileged token.
+#
+# EGRESS ALLOWLIST — one endpoint here is NOT in the monorepo's list it was
+# copied from: pkg-npm.githubusercontent.com. GitHub Packages authenticates at
+# npm.pkg.github.com but redirects the actual tarball download to that CDN
+# host, so `npm ci` dies with ECONNREFUSED without it. The monorepo never
+# needed it because there the three @tokenbot-org/* packages are workspace
+# links that are never fetched from a registry — extracting this package is
+# exactly what turned them into real downloads. Keep it when editing.
 
 on:
   pull_request:
@@ -39,6 +47,7 @@ jobs:
             npm.pkg.github.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
+            pkg-npm.githubusercontent.com:443
             registry.npmjs.org:443
             registry.yarnpkg.com:443
             nodejs.org:443
@@ -70,6 +79,7 @@ jobs:
             npm.pkg.github.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
+            pkg-npm.githubusercontent.com:443
             registry.npmjs.org:443
             registry.yarnpkg.com:443
             nodejs.org:443
@@ -101,6 +111,7 @@ jobs:
             npm.pkg.github.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
+            pkg-npm.githubusercontent.com:443
             registry.npmjs.org:443
             registry.yarnpkg.com:443
             nodejs.org:443
@@ -132,6 +143,7 @@ jobs:
             npm.pkg.github.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
+            pkg-npm.githubusercontent.com:443
             registry.npmjs.org:443
             registry.yarnpkg.com:443
             nodejs.org:443
@@ -206,6 +218,7 @@ jobs:
             npm.pkg.github.com:443
             ghcr.io:443
             pkg-containers.githubusercontent.com:443
+            pkg-npm.githubusercontent.com:443
             registry.npmjs.org:443
             registry.yarnpkg.com:443
             nodejs.org:443
