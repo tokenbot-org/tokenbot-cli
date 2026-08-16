@@ -66,10 +66,27 @@ jobs:
 
       # Install with the GitHub Packages credential so the private build deps
       # resolve. The committed .npmrc maps only the @tokenbot-org scope there.
+      # Two registries are in play in this one job, and they need different
+      # credentials:
+      #
+      #   - npm.pkg.github.com  — the private @tokenbot-org/* BUILD deps, which
+      #     need GHP_READ_TOKEN.
+      #   - registry.npmjs.org  — where `tokenbot` is PUBLISHED, authenticated
+      #     by the OIDC exchange with no stored token at all.
+      #
+      # actions/setup-node writes an `_authToken` line only for the single
+      # `registry-url` it is given, and above that is public npm (correctly —
+      # setting a scope there would route the publish at the wrong registry).
+      # So nothing writes a `//npm.pkg.github.com/:_authToken=` line, and
+      # setting NODE_AUTH_TOKEN alone has nothing to bind to: `npm ci` fails
+      # with `E401 ... authentication token not provided`. Write that one line
+      # explicitly. It is host-scoped, so it cannot interfere with the OIDC
+      # credential used for the publish.
+      - name: Authenticate to GitHub Packages for the private build deps
+        run: npm config set //npm.pkg.github.com/:_authToken "${{ secrets.GHP_READ_TOKEN }}"
+
       - name: Install dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GHP_READ_TOKEN }}
 
       - name: Build
         run: npm run build
