@@ -109,8 +109,17 @@ _grep_hits() { # $1=case-flag ("" or "-i"); rest: patterns
     | cut -c1-240
 }
 
+# Normalise the leading "./" that grep emits when the root is `.` BEFORE the
+# allowlist is applied. Existing allowlists were written against v1's roots
+# (`node_modules dist`) and are anchored `^node_modules/...`; without this, v2's
+# change of root silently invalidates every entry and the suppressed hits all
+# come back as false positives.
 _apply_allow() {
-  if [ -n "${ALLOW_FILE:-}" ] && [ -f "$ALLOW_FILE" ]; then grep -vE -f "$ALLOW_FILE"; else cat; fi
+  if [ -n "${ALLOW_FILE:-}" ] && [ -f "$ALLOW_FILE" ]; then
+    sed 's|^\./||' | grep -vE -f "$ALLOW_FILE"
+  else
+    sed 's|^\./||'
+  fi
 }
 
 # Only asset-extension files, so the masquerade check never walks a whole
