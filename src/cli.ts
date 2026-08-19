@@ -25,6 +25,7 @@ import {
 } from './commands/link.js';
 import { buildStrategyCommand } from './commands/strategy.js';
 import { buildCopierCommand } from './commands/copier.js';
+import { buildTradesCommand } from './commands/trades.js';
 import { buildExchangeCommand } from './commands/exchange.js';
 import { buildWebhooksCommand } from './commands/webhooks.js';
 import { buildRewardsCommand } from './commands/rewards.js';
@@ -74,6 +75,7 @@ export function buildProgram(): Command {
   program.addCommand(buildLinksCommand());
   program.addCommand(buildStrategyCommand());
   program.addCommand(buildCopierCommand());
+  program.addCommand(buildTradesCommand());
   program.addCommand(buildExchangeCommand());
   program.addCommand(buildWebhooksCommand());
   program.addCommand(buildRewardsCommand());

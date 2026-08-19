@@ -48,15 +48,26 @@ jobs:
 
       - uses: actions/checkout@v6
 
-      # NOTE: no `scope:` and no GitHub Packages registry here. `tokenbot` is
-      # unscoped and publishes to public npm; pointing this at a scope would
-      # route auth and the publish itself at the wrong registry. The private
-      # @tokenbot-org/* build deps are installed in the separate step below,
-      # which supplies its own credential.
+      # NO `registry-url:` here, and that is the whole trick.
+      #
+      # setup-node's registry-url makes it write
+      # `//registry.npmjs.org/:_authToken=${NODE_AUTH_TOKEN}` into a temp
+      # userconfig. npm SKIPS the OIDC exchange when an auth token is already
+      # configured for the target registry — so that line is actively harmful
+      # here. It is also unnecessary: registry.npmjs.org is npm's built-in
+      # default, and the committed .npmrc already routes only the
+      # @tokenbot-org scope to GitHub Packages.
+      #
+      # It bit exactly once and cost a release: setup-node leaves the value as
+      # the literal string `${NODE_AUTH_TOKEN}`, which expands to empty at read
+      # time and lets OIDC proceed — until something calls `npm config set`,
+      # which rewrites the file and MATERIALISES that placeholder into
+      # setup-node's dummy `XXXXX-XXXXX-XXXXX-XXXXX`. npm then saw a real
+      # token, skipped OIDC, and published unauthenticated: `E404 PUT
+      # /tokenbot`, npm's mask for an unauthorized write.
       - uses: actions/setup-node@v6
         with:
           node-version: '22'
-          registry-url: 'https://registry.npmjs.org/'
 
       # Trusted publishing requires npm >= 11.5.1; Node 22 ships npm 10.x.
       - name: Ensure npm supports trusted publishing
@@ -66,10 +77,27 @@ jobs:
 
       # Install with the GitHub Packages credential so the private build deps
       # resolve. The committed .npmrc maps only the @tokenbot-org scope there.
+      # Two registries are in play in this one job, and they need different
+      # credentials:
+      #
+      #   - npm.pkg.github.com  — the private @tokenbot-org/* BUILD deps, which
+      #     need GHP_READ_TOKEN.
+      #   - registry.npmjs.org  — where `tokenbot` is PUBLISHED, authenticated
+      #     by the OIDC exchange with no stored token at all.
+      #
+      # actions/setup-node writes an `_authToken` line only for the single
+      # `registry-url` it is given, and above that is public npm (correctly —
+      # setting a scope there would route the publish at the wrong registry).
+      # So nothing writes a `//npm.pkg.github.com/:_authToken=` line, and
+      # setting NODE_AUTH_TOKEN alone has nothing to bind to: `npm ci` fails
+      # with `E401 ... authentication token not provided`. Write that one line
+      # explicitly. It is host-scoped, so it cannot interfere with the OIDC
+      # credential used for the publish.
+      - name: Authenticate to GitHub Packages for the private build deps
+        run: npm config set //npm.pkg.github.com/:_authToken "${{ secrets.GHP_READ_TOKEN }}"
+
       - name: Install dependencies
         run: npm ci
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.GHP_READ_TOKEN }}
 
       - name: Build
         run: npm run build

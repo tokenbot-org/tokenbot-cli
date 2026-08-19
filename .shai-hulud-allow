@@ -1,25 +1,3 @@
-# .shai-hulud-allow — grep -E regexes matched against "path:line:content"
-# hits. A matching hit is IGNORED, so keep every entry as narrow as the fact
-# it records. Lines starting with # and blank lines are ignored.
-
-# ccxt ships Binance's OFFICIAL BSC RPC endpoint in its prediction-market
-# module. TIER2 lists bsc-dataseed as a drainer C2/RPC host, so ordinary
-# exchange-library data reads as an IoC. Introduced in ccxt 4.5.68; 4.5.43
-# does not contain it, which is the only reason market-maker-bot passed while
-# tokenbot-cli failed. Scoped to the ccxt path AND that one hostname: any
-# other marker in ccxt source still fails.
-^\./node_modules/ccxt/.*bsc-dataseed\.binance\.org
-
-# The same data also appears in ccxt's prebuilt browser bundle and its
-# sourcemap. Those are SINGLE-LINE minified files, and the scanner truncates
-# each hit to 240 characters, so the hostname is cut away and a
-# content-scoped rule can never match them. These two must therefore be
-# matched by PATH.
-#
-# COST, stated plainly: a marker injected ONLY into these two generated
-# artifacts would be missed. Accepted because both are built from
-# ccxt/js/src, which IS still scanned in full, so a compromised ccxt has to
-# evade the source scan as well. Do not extend path-scoping past these two
-# files.
-^\./node_modules/ccxt/dist/ccxt\.browser\.min\.js:
-^\./node_modules/ccxt/dist/ccxt\.browser\.min\.js\.map:
+^\./?node_modules/ccxt/js/src/prediction/myriad\.js:
+^\./?node_modules/ccxt/dist/cjs/src/prediction/myriad\.js:
+^\./?node_modules/ccxt/dist/ccxt\.browser\.min\.js

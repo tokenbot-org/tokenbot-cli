@@ -57,7 +57,12 @@ describe('runInit', () => {
 
     await captureStdout(async () => {
       await runInit(
-        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, label: 'my-laptop' },
+        {
+          apiUrl: DEFAULT_API_URL,
+          wsUrl: DEFAULT_WS_URL,
+          label: 'my-laptop',
+          apiKey: 'bootstrap-key',
+        },
         {
           promptPassphrase: makePassphrase('newpass'),
           promptConfirm: async () => true,
@@ -86,7 +91,7 @@ describe('runInit', () => {
     const confirmSpy = vi.fn(async () => true);
     await captureStdout(async () => {
       await runInit(
-        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL },
+        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, apiKey: 'k' },
         {
           promptPassphrase: makePassphrase('newpass'),
           promptConfirm: confirmSpy,
@@ -105,6 +110,9 @@ describe('runInit', () => {
         { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL },
         {
           promptPassphrase: makePassphrase('newpass'),
+          // Supplied so a regression that reordered the checks fails loudly
+          // rather than hanging on an interactive prompt.
+          promptApiKey: async () => 'k',
           promptConfirm: async () => false,
           fetchImpl: makeFakeFetch().fetchImpl,
         },
@@ -121,9 +129,107 @@ describe('runInit', () => {
     await expect(
       runInit(
         { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL },
-        { promptPassphrase: async () => '', fetchImpl: makeFakeFetch().fetchImpl },
+        {
+          promptPassphrase: async () => '',
+          promptApiKey: async () => 'k',
+          fetchImpl: makeFakeFetch().fetchImpl,
+        },
       ),
     ).rejects.toBeInstanceOf(CliUserError);
+  });
+
+  it('sends the bootstrap API key as x-api-key on the registration round-trip', async () => {
+    await seedConfig();
+    clearSeed();
+    await seedConfig();
+    clearSeed();
+    const fake = makeFakeFetch();
+    queueRegistration(fake);
+
+    await captureStdout(async () => {
+      await runInit(
+        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, apiKey: 'secret-key' },
+        {
+          promptPassphrase: makePassphrase('newpass'),
+          fetchImpl: fake.fetchImpl,
+        },
+      );
+    });
+
+    expect(fake.calls).toHaveLength(2);
+    for (const call of fake.calls) {
+      expect(call.headers['x-api-key']).toBe('secret-key');
+      // Signing headers must survive alongside the credential.
+      expect(call.headers['x-tb-pubkey']).toBeTruthy();
+      expect(call.headers['x-tb-sig']).toBeTruthy();
+    }
+  });
+
+  // Regression: the SDK issues POST for both legs. rest-api had registered
+  // the challenge route as GET only, so init 404'd on its first call.
+  it('uses POST for both the challenge and the registration', async () => {
+    await seedConfig();
+    clearSeed();
+    await seedConfig();
+    clearSeed();
+    const fake = makeFakeFetch();
+    queueRegistration(fake);
+
+    await captureStdout(async () => {
+      await runInit(
+        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, apiKey: 'k' },
+        {
+          promptPassphrase: makePassphrase('newpass'),
+          fetchImpl: fake.fetchImpl,
+        },
+      );
+    });
+
+    expect(fake.calls.map((c) => c.method)).toEqual(['POST', 'POST']);
+  });
+
+  it('falls back to TOKENBOT_API_KEY when --api-key is omitted', async () => {
+    await seedConfig();
+    clearSeed();
+    await seedConfig();
+    clearSeed();
+    process.env['TOKENBOT_API_KEY'] = 'env-key';
+    const fake = makeFakeFetch();
+    queueRegistration(fake);
+
+    try {
+      await captureStdout(async () => {
+        await runInit(
+          { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL },
+          {
+            promptPassphrase: makePassphrase('newpass'),
+            fetchImpl: fake.fetchImpl,
+          },
+        );
+      });
+      expect(fake.calls[0]!.headers['x-api-key']).toBe('env-key');
+    } finally {
+      delete process.env['TOKENBOT_API_KEY'];
+    }
+  });
+
+  it('rejects an empty API key without contacting the server', async () => {
+    await seedConfig();
+    clearSeed();
+    await seedConfig();
+    clearSeed();
+    const fake = makeFakeFetch();
+    await expect(
+      runInit(
+        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL },
+        {
+          promptPassphrase: makePassphrase('newpass'),
+          promptApiKey: async () => '',
+          fetchImpl: fake.fetchImpl,
+        },
+      ),
+    ).rejects.toBeInstanceOf(CliUserError);
+    expect(fake.calls).toHaveLength(0);
   });
 
   it('writes the config file under TOKENBOT_HOME', async () => {
@@ -135,7 +241,7 @@ describe('runInit', () => {
     queueRegistration(fake, 'acct-write-1');
     await captureStdout(async () => {
       await runInit(
-        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, label: 'lab' },
+        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, label: 'lab', apiKey: 'k' },
         {
           promptPassphrase: makePassphrase('newpass'),
           fetchImpl: fake.fetchImpl,
@@ -156,7 +262,7 @@ describe('runInit', () => {
     queueRegistration(fake);
     const out = await captureStdout(async () => {
       await runInit(
-        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, label: 'lab' },
+        { apiUrl: DEFAULT_API_URL, wsUrl: DEFAULT_WS_URL, label: 'lab', apiKey: 'k' },
         {
           promptPassphrase: makePassphrase('newpass'),
           fetchImpl: fake.fetchImpl,

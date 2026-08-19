@@ -7,6 +7,7 @@ import {
 } from '@tokenbot-org/cli-core';
 import {
   SdkAuthError,
+  SdkGraphqlError,
   SdkNetworkError,
   SdkNotFoundError,
   SdkPermissionError,
@@ -29,6 +30,52 @@ describe('mapError', () => {
   it('maps SdkAuthError to exit 3', () => {
     const r = mapError(new SdkAuthError('nope'));
     expect(r.exitCode).toBe(3);
+  });
+
+  // repos/CLAUDE.md: signed-request failures must surface the exact
+  // server error code, never a bare "auth failed".
+  it('surfaces the server error code from a rejected signed request', () => {
+    const body = JSON.stringify({
+      statusCode: 401,
+      code: 'CLI_SIG_INVALID',
+      message: 'CLI signature rejected: timestamp outside allowed skew',
+    });
+    const r = mapError(new CliAuthError(`signed request rejected (401): ${body}`));
+
+    expect(r.exitCode).toBe(3);
+    expect(r.message).toContain('CLI_SIG_INVALID');
+    expect(r.message).toContain('timestamp outside allowed skew');
+    expect(r.message).toMatch(/tokenbot init/);
+  });
+
+  it('distinguishes an unknown public key from a bad signature', () => {
+    const body = JSON.stringify({ code: 'CLI_IDENTITY_UNKNOWN', message: 'Public key is not registered' });
+    const r = mapError(new CliAuthError(`signed request rejected (401): ${body}`));
+    expect(r.message).toContain('CLI_IDENTITY_UNKNOWN');
+  });
+
+  it('falls back to the raw message when the 401 body is not JSON', () => {
+    const r = mapError(new CliAuthError('signed request rejected (401): <empty body>'));
+    expect(r.exitCode).toBe(3);
+    expect(r.message).toContain('<empty body>');
+  });
+
+  it('surfaces extensions.code from a GraphQL error', () => {
+    const r = mapError(
+      new SdkGraphqlError('graphql operation failed: Not authenticated', [
+        { message: 'Not authenticated', extensions: { code: 'UNAUTHENTICATED' } },
+      ] as never),
+    );
+
+    expect(r.exitCode).toBe(2);
+    expect(r.message).toContain('UNAUTHENTICATED');
+    expect(r.message).toContain('Not authenticated');
+  });
+
+  it('still reports a GraphQL error that carries no code', () => {
+    const r = mapError(new SdkGraphqlError('graphql operation failed: boom', [{ message: 'boom' }]));
+    expect(r.exitCode).toBe(2);
+    expect(r.message).toContain('boom');
   });
 
   it('maps SdkPermissionError to exit 3 with the original message', () => {
