@@ -121,7 +121,7 @@ _grep_hits() { # $1=case-flag ("" or "-i"); rest: patterns
   for p in "$@"; do args+=(-e "$p"); done
   # shellcheck disable=SC2046
   grep -rnaF ${caseflag:+$caseflag} "${args[@]}" \
-    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow' \
+    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow*' \
     "${SCAN_ROOTS[@]}" 2>/dev/null \
     | cut -c1-240
 }
@@ -219,7 +219,7 @@ _asset_masquerade() {
 # used to push the loader off-screen in diffs and editors.
 _padding_hits() {
   grep -rnaE '[[:space:]]{200,}[^[:space:]]' \
-    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow' \
+    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow*' \
     $(for e in $DOC_EXTS; do printf ' --exclude=*.%s' "$e"; done) \
     "${SCAN_ROOTS[@]}" 2>/dev/null | cut -c1-160
 }
