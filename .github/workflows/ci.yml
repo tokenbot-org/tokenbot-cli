@@ -233,4 +233,4 @@ jobs:
         # "nothing to scan" when none do — so a verbatim copy of the monorepo
         # invocation would silently stop scanning the built artifact, which is
         # the single most important thing to scan in this repo.
-        run: bash .github/scripts/shai-hulud-marker-scan.sh node_modules dist
+        run: bash .github/scripts/shai-hulud-marker-scan.sh .
