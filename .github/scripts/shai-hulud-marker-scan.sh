@@ -38,14 +38,6 @@
 #
 #   PATH ...     Directories/files to scan. Default: the current tree (`.`).
 #   --strict     Escalate TIER3 heuristics and standalone createRequire to fail.
-#                KNOWN LIMITATION: --strict currently FAILS on a clean tree in
-#                any repo with vendored ESM tooling. vitest, vite, rolldown and
-#                fdir all ship legitimate `createRequire(import.meta.url)` in
-#                node_modules (measured: 14 hits, 0 of them first-party). To use
-#                --strict today, pass an --allow file listing those paths. The
-#                escalation is deliberately NOT scoped to first-party code: a
-#                compromised dependency is exactly where a malicious
-#                createRequire would hide.
 #   --allow F    File of grep -E regexes; matching "path:line:content" hits are
 #                ignored (default: .shai-hulud-allow, if present).
 #   --quiet      Suppress the TIER3 advisory section when it is not failing.
@@ -79,15 +71,6 @@ PRUNE_DIRS=(.git node_modules/.cache .next/cache .turbo .gradle Pods DerivedData
 # Extensions whose contents must NOT be executable text, with expected leading
 # magic bytes (hex). A file claiming one of these types that carries script
 # instead is the 2026-08-13 `fa-solid-400.woff2` trick.
-# Documentation formats, excluded from the PADDING heuristic ONLY. Wide
-# markdown/rst tables pad columns well past 200 spaces: on a clean rest-api
-# tree that produced 91 advisories, 91 of 91 of them .md, and made --strict
-# unusable. Advisories nobody reads are worse than none, so the noise is cut
-# at the source. These files are STILL covered by the marker, masquerade and
-# obfuscation detectors — only the whitespace heuristic skips them, and no
-# self-test case is a doc file.
-DOC_EXTS='md markdown rst txt csv tsv'
-
 ASSET_EXTS='woff2|woff|ttf|otf|eot|png|jpg|jpeg|gif|ico|webp|bmp|mp4|mov|pdf|zip'
 
 STRICT=0
@@ -121,7 +104,7 @@ _grep_hits() { # $1=case-flag ("" or "-i"); rest: patterns
   for p in "$@"; do args+=(-e "$p"); done
   # shellcheck disable=SC2046
   grep -rnaF ${caseflag:+$caseflag} "${args[@]}" \
-    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow' \
+    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow*' \
     "${SCAN_ROOTS[@]}" 2>/dev/null \
     | cut -c1-240
 }
@@ -180,8 +163,7 @@ _asset_masquerade() {
 # used to push the loader off-screen in diffs and editors.
 _padding_hits() {
   grep -rnaE '[[:space:]]{200,}[^[:space:]]' \
-    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow' \
-    $(for e in $DOC_EXTS; do printf ' --exclude=*.%s' "$e"; done) \
+    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow*' \
     "${SCAN_ROOTS[@]}" 2>/dev/null | cut -c1-160
 }
 
