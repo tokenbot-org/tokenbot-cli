@@ -38,6 +38,14 @@
 #
 #   PATH ...     Directories/files to scan. Default: the current tree (`.`).
 #   --strict     Escalate TIER3 heuristics and standalone createRequire to fail.
+#                KNOWN LIMITATION: --strict currently FAILS on a clean tree in
+#                any repo with vendored ESM tooling. vitest, vite, rolldown and
+#                fdir all ship legitimate `createRequire(import.meta.url)` in
+#                node_modules (measured: 14 hits, 0 of them first-party). To use
+#                --strict today, pass an --allow file listing those paths. The
+#                escalation is deliberately NOT scoped to first-party code: a
+#                compromised dependency is exactly where a malicious
+#                createRequire would hide.
 #   --allow F    File of grep -E regexes; matching "path:line:content" hits are
 #                ignored (default: .shai-hulud-allow, if present).
 #   --quiet      Suppress the TIER3 advisory section when it is not failing.
@@ -71,6 +79,15 @@ PRUNE_DIRS=(.git node_modules/.cache .next/cache .turbo .gradle Pods DerivedData
 # Extensions whose contents must NOT be executable text, with expected leading
 # magic bytes (hex). A file claiming one of these types that carries script
 # instead is the 2026-08-13 `fa-solid-400.woff2` trick.
+# Documentation formats, excluded from the PADDING heuristic ONLY. Wide
+# markdown/rst tables pad columns well past 200 spaces: on a clean rest-api
+# tree that produced 91 advisories, 91 of 91 of them .md, and made --strict
+# unusable. Advisories nobody reads are worse than none, so the noise is cut
+# at the source. These files are STILL covered by the marker, masquerade and
+# obfuscation detectors — only the whitespace heuristic skips them, and no
+# self-test case is a doc file.
+DOC_EXTS='md markdown rst txt csv tsv'
+
 ASSET_EXTS='woff2|woff|ttf|otf|eot|png|jpg|jpeg|gif|ico|webp|bmp|mp4|mov|pdf|zip'
 
 STRICT=0
@@ -104,21 +121,51 @@ _grep_hits() { # $1=case-flag ("" or "-i"); rest: patterns
   for p in "$@"; do args+=(-e "$p"); done
   # shellcheck disable=SC2046
   grep -rnaF ${caseflag:+$caseflag} "${args[@]}" \
-    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow*' \
+    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow' \
     "${SCAN_ROOTS[@]}" 2>/dev/null \
     | cut -c1-240
 }
 
-# Normalise the leading "./" that grep emits when the root is `.` BEFORE the
-# allowlist is applied. Existing allowlists were written against v1's roots
-# (`node_modules dist`) and are anchored `^node_modules/...`; without this, v2's
-# change of root silently invalidates every entry and the suppressed hits all
-# come back as false positives.
+# Strip `#` comments and blank lines, leaving only real patterns.
+# Without this, an explanatory comment is a LIVE REGEX and a blank line
+# matches every line — i.e. writing a normal allow file disables the scan.
+_allow_patterns() {
+  sed -e 's/[[:space:]]*#.*$//' -e '/^[[:space:]]*$/d' "$ALLOW_FILE"
+}
+
+# Validate the allow file BEFORE scanning, and abort if any pattern is
+# malformed.
+#
+# THIS IS A FAIL-CLOSED GUARD, and it is the whole point of this function.
+# `grep -vE -f BADFILE` exits 2 and prints NOTHING. Piped into the hit list
+# that silently empties it, so a real detection renders as
+# "OK — no IoC markers". A single stray "(" in a comment was enough to turn
+# the scanner off with no warning. Validate up front — not inside the
+# pipeline, where a subshell `exit` cannot stop the parent.
+_validate_allow() {
+  [ -n "${ALLOW_FILE:-}" ] && [ -f "$ALLOW_FILE" ] || return 0
+  local pat bad=0 n=0
+  while IFS= read -r pat; do
+    n=$((n+1))
+    printf 'x\n' | grep -qE "$pat" >/dev/null 2>&1
+    [ $? -gt 1 ] && { echo "shai-hulud-marker-scan: invalid regex in $ALLOW_FILE: $pat" >&2; bad=1; }
+  done <<EOF_PATS
+$(_allow_patterns)
+EOF_PATS
+  if [ "$bad" -eq 1 ]; then
+    echo "shai-hulud-marker-scan: FATAL — allow file has invalid patterns; refusing to run." >&2
+    echo "  (an unusable allow file must never be treated as 'nothing to report')" >&2
+    exit 2
+  fi
+  ALLOW_COUNT=$n
+  return 0
+}
+
 _apply_allow() {
-  if [ -n "${ALLOW_FILE:-}" ] && [ -f "$ALLOW_FILE" ]; then
-    sed 's|^\./||' | grep -vE -f "$ALLOW_FILE"
+  if [ -n "${ALLOW_FILE:-}" ] && [ -f "$ALLOW_FILE" ] && [ "${ALLOW_COUNT:-0}" -gt 0 ]; then
+    grep -vE -f <(_allow_patterns)
   else
-    sed 's|^\./||'
+    cat
   fi
 }
 
@@ -172,7 +219,8 @@ _asset_masquerade() {
 # used to push the loader off-screen in diffs and editors.
 _padding_hits() {
   grep -rnaE '[[:space:]]{200,}[^[:space:]]' \
-    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow*' \
+    $(_prune_args) --exclude="$(basename "$0")" --exclude='*marker-scan*.sh' --exclude='.shai-hulud-allow' \
+    $(for e in $DOC_EXTS; do printf ' --exclude=*.%s' "$e"; done) \
     "${SCAN_ROOTS[@]}" 2>/dev/null | cut -c1-160
 }
 
@@ -189,6 +237,7 @@ _obfuscation_hits() {
 }
 
 run_scan() {
+  _validate_allow
   local existing=() r
   for r in "${SCAN_ROOTS[@]}"; do [ -e "$r" ] && existing+=("$r"); done
   if [ ${#existing[@]} -eq 0 ]; then
