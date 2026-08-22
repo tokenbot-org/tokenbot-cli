@@ -38,14 +38,13 @@
 #
 #   PATH ...     Directories/files to scan. Default: the current tree (`.`).
 #   --strict     Escalate TIER3 heuristics and standalone createRequire to fail.
-#                KNOWN LIMITATION: --strict currently FAILS on a clean tree in
-#                any repo with vendored ESM tooling. vitest, vite, rolldown and
-#                fdir all ship legitimate `createRequire(import.meta.url)` in
-#                node_modules (measured: 14 hits, 0 of them first-party). To use
-#                --strict today, pass an --allow file listing those paths. The
-#                escalation is deliberately NOT scoped to first-party code: a
-#                compromised dependency is exactly where a malicious
-#                createRequire would hide.
+#                A createRequire co-located with a TIER marker is fatal in
+#                BOTH modes. --strict additionally escalates a STANDALONE
+#                createRequire, but only in first-party code: vendored ESM
+#                tooling (vitest, vite, rolldown, fdir) ships it legitimately,
+#                which previously made --strict unusable on any real tree.
+#                Vendored paths lose no coverage — a compromised dependency
+#                carrying the loader trips the co-located check above.
 #   --allow F    File of grep -E regexes; matching "path:line:content" hits are
 #                ignored (default: .shai-hulud-allow, if present).
 #   --quiet      Suppress the TIER3 advisory section when it is not failing.
@@ -68,6 +67,11 @@ TIER2=(
   'bsc-dataseed'
 )
 CONTEXT='createRequire(import.meta.url)'
+
+# Third-party trees. Used ONLY to decide whether a STANDALONE createRequire is
+# worth escalating under --strict; every other detector, and the co-located
+# createRequire check below, still cover these paths in full.
+VENDOR_RE='(^|/)(node_modules|vendor|third_party|bower_components)/'
 
 # v2: default to the working tree, not build output. Build roots remain valid
 # explicit arguments for the pre-deploy image check.
@@ -265,19 +269,37 @@ run_scan() {
 
   tier_files="$(printf '%s\n%s\n' "$tier1" "$tier2" | sed -n 's/^\([^:]*\):.*/\1/p' | sort -u)"
 
+  # createRequire(import.meta.url) is how ESM reaches CommonJS `require`. It is
+  # both what the loader needs AND what every legitimate ESM build tool does,
+  # so it is only meaningful in context.
+  #
+  # This used to be an if/else: --strict hard-failed on EVERY hit and skipped
+  # the correlation entirely, which made --strict noisier without making it
+  # more precise. Measured on rest-api: 14 hits, 14 in node_modules (vitest,
+  # vite, rolldown, fdir), 0 first-party — so --strict could never be switched
+  # on. Now the two run together.
   if [ -n "$ctx" ]; then
-    if [ "$STRICT" -eq 1 ]; then
-      echo ">>> CONTEXT marker (createRequire) — --strict, hard-failing:"; echo "$ctx"; echo; hits=1
-    else
-      ctx_bad=""
-      while IFS= read -r line; do
-        [ -z "$line" ] && continue
-        local f; f="$(printf '%s' "$line" | sed -n 's/^\([^:]*\):.*/\1/p')"
-        if printf '%s\n' "$tier_files" | grep -qxF "$f"; then ctx_bad="${ctx_bad}${line}"$'\n'; fi
-      done <<< "$ctx"
-      if [ -n "${ctx_bad//$'\n'/}" ]; then
-        echo ">>> CONTEXT marker (createRequire) co-located with a TIER hit:"; printf '%s' "$ctx_bad"; echo; hits=1
+    ctx_bad=""; ctx_lone=""
+    while IFS= read -r line; do
+      [ -z "$line" ] && continue
+      local f; f="$(printf '%s' "$line" | sed -n 's/^\([^:]*\):.*/\1/p')"
+      if printf '%s\n' "$tier_files" | grep -qxF "$f"; then
+        # Co-located with a TIER marker: high signal. ALWAYS fatal, in both
+        # modes, and in vendored paths too — a compromised dependency carrying
+        # the loader trips this, which is why scoping below costs no coverage.
+        ctx_bad="${ctx_bad}${line}"$'\n'
+      elif ! printf '%s' "$f" | grep -qE "$VENDOR_RE"; then
+        # Standalone, first-party. Low signal on its own, so --strict only.
+        ctx_lone="${ctx_lone}${line}"$'\n'
       fi
+      # Standalone AND vendored is dropped: ordinary ESM tooling.
+    done <<< "$ctx"
+
+    if [ -n "${ctx_bad//$'\n'/}" ]; then
+      echo ">>> CONTEXT marker (createRequire) co-located with a TIER hit:"; printf '%s' "$ctx_bad"; echo; hits=1
+    fi
+    if [ "$STRICT" -eq 1 ] && [ -n "${ctx_lone//$'\n'/}" ]; then
+      echo ">>> CONTEXT marker (createRequire), first-party standalone — --strict, hard-failing:"; printf '%s' "$ctx_lone"; echo; hits=1
     fi
   fi
 
@@ -318,6 +340,13 @@ if [ "${SELFTEST:-0}" -eq 1 ]; then
     else echo "  FAIL  $name (exit $rc, wanted $want)"; fail=1; fi
   }
 
+  _case_strict() { # name expected_rc dir  — same, with --strict semantics
+    local name="$1" want="$2" dir="$3" rc
+    ( cd "$dir" && SCAN_ROOTS=(.); ALLOW_FILE=""; STRICT=1; run_scan >/dev/null 2>&1 ); rc=$?
+    if [ "$rc" -eq "$want" ]; then echo "  ok    $name (exit $rc)"
+    else echo "  FAIL  $name (exit $rc, wanted $want)"; fail=1; fi
+  }
+
   # 1. clean tree, including a benign standalone createRequire and minified JS
   mkdir -p "$tmp/clean/src"
   printf 'import { createRequire } from "module";\nconst require = createRequire(import.meta.url);\n' > "$tmp/clean/src/a.mjs"
@@ -344,6 +373,26 @@ if [ "${SELFTEST:-0}" -eq 1 ]; then
   mkdir -p "$tmp/realfont"
   printf 'wOF2\000\001\000\000\000\000\000\000actual font payload here\n' > "$tmp/realfont/ok.woff2"
   _case "genuine woff2 not flagged" 0 "$tmp/realfont"
+
+  # 6-8. createRequire scoping. These exist because --strict used to hard-fail
+  # on any tree containing vendored ESM tooling, which made it unusable: 14
+  # hits on rest-api, 14 of them in node_modules, 0 first-party.
+  CR='import { createRequire } from "module";\nconst require = createRequire(import.meta.url);\n'
+
+  mkdir -p "$tmp/cr-vendor/node_modules/vitest/dist"
+  printf "$CR" > "$tmp/cr-vendor/node_modules/vitest/dist/x.mjs"
+  _case_strict "vendored standalone createRequire ignored under --strict" 0 "$tmp/cr-vendor"
+
+  mkdir -p "$tmp/cr-first/src"
+  printf "$CR" > "$tmp/cr-first/src/app.mjs"
+  _case        "first-party standalone createRequire is not fatal by default" 0 "$tmp/cr-first"
+  _case_strict "first-party standalone createRequire fails under --strict"    1 "$tmp/cr-first"
+
+  # The one that proves the scoping costs no coverage: a compromised dependency
+  # carrying the loader must still fail, in DEFAULT mode, inside node_modules.
+  mkdir -p "$tmp/cr-evil/node_modules/vitest/dist"
+  printf "$CR"'global.i="A10-x";\n' > "$tmp/cr-evil/node_modules/vitest/dist/x.mjs"
+  _case "vendored createRequire co-located with a TIER marker still fails" 1 "$tmp/cr-evil"
 
   echo
   if [ $fail -eq 0 ]; then echo "SELF-TEST PASSED ✅ (all detectors fire; clean/minified/genuine-asset do not)"; exit 0
