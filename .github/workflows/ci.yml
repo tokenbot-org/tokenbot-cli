@@ -227,6 +227,14 @@ jobs:
         with:
           ghp-token: ${{ secrets.GHP_READ_TOKEN }}
       - run: npm run build
+      - name: Prove the gate actually blocks (scanner self-test)
+        # Seeds markers into temp trees and asserts exit 1, then asserts a
+        # clean tree exits 0. Guards against the scan silently degrading
+        # into a no-op, which would leave this REQUIRED check permanently
+        # green while detecting nothing. That is not hypothetical: a
+        # malformed allow file used to empty the hit list and report clean.
+        # Adopted from landing-page's workflow, which had it first.
+        run: bash .github/scripts/shai-hulud-marker-scan.sh --self-test
       - name: Scan installed deps + build output for Shai-Hulud IoC markers
         # Roots are `node_modules dist`, NOT the monorepo's `packages/*/dist`.
         # The scanner filters its roots to those that exist and exits 0 with
