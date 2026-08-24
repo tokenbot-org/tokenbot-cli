@@ -7,3 +7,6 @@ coverage/
 # Never commit registry credentials. The committed .npmrc holds only the
 # scope→registry mapping; anything with a token belongs outside the repo.
 .npmrc.local
+
+# Sandboxed test-runner output (scripts/sandbox.sh)
+.sandbox-out/

@@ -1,0 +1,15 @@
+# Build context for Dockerfile.sandbox only.
+#
+# BuildKit reads <dockerfile>.dockerignore in preference to .dockerignore, so
+# this keeps the sandbox build lean WITHOUT changing the context of the
+# production `Dockerfile` — that build is not this change's business.
+#
+# Measured effect: ~200 MB of context down to ~1 MB. Dockerfile.sandbox COPYs
+# only package.json, package-lock.json and .npmrc, so nothing here is needed.
+# node_modules in particular is a macOS/arm64 tree that would be wrong inside a
+# Linux image even if it were copied.
+
+*
+!package.json
+!package-lock.json
+!.npmrc
