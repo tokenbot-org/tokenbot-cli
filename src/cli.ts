@@ -18,6 +18,7 @@ import { buildLoginCommand } from './commands/login.js';
 import { buildLogoutCommand } from './commands/logout.js';
 import { buildKeysCommand } from './commands/keys.js';
 import { buildBalanceCommand } from './commands/balance.js';
+import { buildPortfolioCommand } from './commands/portfolio.js';
 import {
   buildLinkCommand,
   buildLinksCommand,
@@ -70,6 +71,7 @@ export function buildProgram(): Command {
   program.addCommand(buildLogoutCommand());
   program.addCommand(buildKeysCommand());
   program.addCommand(buildBalanceCommand());
+  program.addCommand(buildPortfolioCommand());
   program.addCommand(buildLinkCommand());
   program.addCommand(buildUnlinkCommand());
   program.addCommand(buildLinksCommand());

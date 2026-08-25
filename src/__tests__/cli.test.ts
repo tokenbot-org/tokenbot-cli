@@ -20,6 +20,7 @@ describe('buildProgram', () => {
         'links',
         'login',
         'logout',
+        'portfolio',
         'rewards',
         'strategy',
         'trades',

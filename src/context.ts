@@ -23,7 +23,7 @@ import {
   unlockIdentity,
   type CliConfig,
 } from '@tokenbot-org/cli-core';
-import { TokenbotSdk } from '@tokenbot-org/sdk';
+import { GraphqlClient, TokenbotSdk } from '@tokenbot-org/sdk';
 import { CliUserError } from './errors.js';
 
 /** Tunable bits of context construction (test seam). */
@@ -44,6 +44,22 @@ export interface AuthenticatedContext {
   http: SignedHttpClient;
   sdk: TokenbotSdk;
   keyStore: KeyStore;
+  /**
+   * Raw signed GraphQL transport, pointed at the GraphQL host.
+   *
+   * `TokenbotSdk` keeps its own `GraphqlClient` private and exposes only
+   * typed namespaces, so a command needing a field the SDK's selection set
+   * doesn't request has no way in. Rather than pin a new SDK release for
+   * every such field, commands can issue their own document here — the
+   * escape hatch `sdk/graphql.ts` documents.
+   *
+   * `request()` returns the payload with wire keys INTACT: no `fromWire`,
+   * no Zod. That is deliberate for `portfolio`, whose balance blob is a
+   * user-controlled asset map that `fromWire`'s snake→camel walk would
+   * corrupt (`LUNA_2` → `LUNA2`) and whose null entries it would drop.
+   * Callers own their own parsing.
+   */
+  graphql: GraphqlClient;
 }
 
 let cachedContext: AuthenticatedContext | null = null;
@@ -105,17 +121,31 @@ export async function getAuthenticatedContext(
   }
   const http = new SignedHttpClient(httpOpts);
 
+  // GraphQL now lives on its own host (carried by wsUrl, e.g.
+  // gql-api.tokenbot.com); derive the HTTP GraphQL endpoint from the
+  // WS URL via scheme-swap rather than from the REST apiUrl host.
+  const graphqlUrl = config.wsUrl.replace(/^ws/, 'http');
+
   const sdk = new TokenbotSdk({
     http,
-    // GraphQL now lives on its own host (carried by wsUrl, e.g.
-    // gql-api.tokenbot.com); derive the HTTP GraphQL endpoint from the
-    // WS URL via scheme-swap rather than from the REST apiUrl host.
-    graphqlUrl: config.wsUrl.replace(/^ws/, 'http'),
+    graphqlUrl,
     wsUrl: config.wsUrl,
+  });
+
+  // Same binding TokenbotSdk performs internally: re-point a copy of the
+  // signed transport at the GraphQL origin (identity + fetch preserved) and
+  // POST to its path. Kept in step with sdk/client.ts.
+  const graphqlEndpoint = new URL(graphqlUrl);
+  const graphqlHttp = http.withApiUrl(graphqlEndpoint.origin);
+  const graphql = new GraphqlClient({
+    http: graphqlHttp,
+    ...(graphqlEndpoint.pathname && graphqlEndpoint.pathname !== '/'
+      ? { path: graphqlEndpoint.pathname }
+      : {}),
   });
 
   const keyStore = new KeyStore(privateKey);
 
-  cachedContext = { config, privateKey, http, sdk, keyStore };
+  cachedContext = { config, privateKey, http, sdk, keyStore, graphql };
   return cachedContext;
 }
